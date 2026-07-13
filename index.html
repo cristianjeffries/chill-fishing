@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html><head>
+<link rel="stylesheet" href="style.css">
+
+</head><body>
+<div id="game">
+  <div id="stage" style="position:relative;">
+  <canvas id="canvas" width="680" height="410"></canvas>
+  <div id="title-overlay">
+    <div id="title-wrap">
+      <div id="title-name"><span>chill</span><span id="title-name2">fishing</span></div>
+    </div>
+    <div id="title-btns">
+      <button id="btn-continue" onclick="continueGame()">Continue</button>
+      <button id="btn-newgame" onclick="onNewGame()">New Game</button>
+    </div>
+  </div>
+  <div id="pause-menu" class="hidden">
+    <div id="pause-card">
+      <div id="pause-title">Paused</div>
+      <button class="pause-opt" onclick="resumeGame()">Resume</button>
+      <button class="pause-opt" onclick="saveFromPause()">Save game</button>
+      <button class="pause-opt" onclick="saveAndExit()">Save &amp; exit to title</button>
+      <div id="dev-tools">
+        <div class="dev-title">🛠 Developer Tools</div>
+        <div class="dev-label">Weather</div>
+        <div class="dev-row">
+          <button class="dev-btn" onclick="devSetWeather('clear')">Clear</button>
+          <button class="dev-btn" onclick="devSetWeather('rain')">Rain</button>
+          <button class="dev-btn" onclick="devSetWeather('fog')">Fog</button>
+          <button class="dev-btn" onclick="devSetWeather('storm')">Storm</button>
+          <button class="dev-btn" onclick="devSetWeather('auto')">Auto</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="drawer">
+    <div id="drawer-icons" class="collapsed">
+      <button class="drawer-icon" data-view="quests" onclick="selectView('quests')" title="Quests">⚑<span class="ic-dot" id="dot-quests"></span></button>
+      <button class="drawer-icon" data-view="journal" onclick="selectView('journal')" title="Journal">📖<span class="ic-dot" id="dot-journal"></span></button>
+      <button class="drawer-icon" data-view="cargo" onclick="selectView('cargo')" title="Cargo">📦</button>
+    </div>
+    <button id="drawer-tab" onclick="toggleDrawer()" aria-label="Menu"><span id="drawer-arrow">◀</span><span id="drawer-dot"></span></button>
+  </div>
+  <div id="online-popup" class="hidden">
+    <div id="online-banner"><span id="online-emoji">🐟</span><div id="online-text"><div id="online-name">Bass</div><div id="online-sub">Medium · on the line!</div></div></div>
+    <div id="online-action">SPACE / tap to reel!</div>
+  </div>
+  <div id="catch-popup" class="hidden">
+    <span class="cp-emoji" id="cp-emoji">🐟</span>
+    <div class="cp-text">
+      <div class="cp-badge" id="cp-badge"></div>
+      <div class="cp-name" id="cp-name">Fish</div>
+      <div class="cp-size" id="cp-size">Medium · 24cm</div>
+      <div class="cp-desc" id="cp-desc">A fish.</div>
+    </div>
+    <div class="cp-rewards">
+      <div class="cp-val" id="cp-val">+8g</div>
+      <div class="cp-xp" id="cp-xp">+12 XP</div>
+    </div>
+  </div>
+  <div id="quest-toast" class="hidden">
+    <span class="qt-icon">⚑</span>
+    <div class="qt-text">
+      <div class="qt-title" id="qt-title">Quest</div>
+      <div class="qt-desc" id="qt-desc">Description</div>
+      <div class="qt-prog" id="qt-prog">1 / 20</div>
+    </div>
+  </div>
+  </div>
+<div id="shop-overlay" class="overlay">
+  <div class="panel">
+    <div class="panel-header"><h3>🏪 Harbor Market</h3><div style="display:flex;gap:6px;align-items:center;"><button class="sbtn" onclick="saveGame()">💾</button><button class="close-btn" onclick="closeShop()">✕</button></div></div>
+    <div style="font-size:12px;color:var(--color-text-secondary);padding:6px 16px 0;">💰 <strong id="shop-gold-val">0</strong> · ⭐ Lv<strong id="shop-lv-val">1</strong></div>
+    <div class="panel-body">
+      <div class="sec-label">Sell fish</div><div id="sell-list"></div><button id="sell-all-btn" onclick="sellAll()">Sell all fish</button>
+      <div class="sec-label">Upgrades</div><div id="upgrade-list"></div>
+      <div class="sec-label">Boats</div><div id="boat-list"></div>
+      <div class="sec-label">Navigation</div><div id="nav-list"></div>
+      <div class="sec-label">Zones</div><div id="zone-list"></div>
+      <div class="sec-label">Quests</div><div id="quest-list-shop"></div>
+      <div class="sec-label">Save</div><div id="save-info" style="font-size:10px;color:var(--color-text-secondary);margin-bottom:4px;"></div>
+      <button id="reset-btn" onclick="confirmReset()">🗑 Reset save</button>
+    </div>
+  </div>
+</div>
+<div id="cargo-overlay" class="overlay">
+  <div class="panel">
+    <div class="panel-header"><h3>📦 Cargo Hold <span id="cargo-cap" style="font-size:11px;color:#888;font-weight:400;"></span></h3><button class="close-btn" onclick="dismissActivePanel()">✕</button></div>
+    <div class="panel-body"><div id="cargo-summary" style="display:flex;gap:8px;margin-bottom:12px;"></div><div id="cargo-list"></div></div>
+  </div>
+</div>
+<div id="journal-overlay" class="overlay">
+  <div class="panel">
+    <div class="panel-header"><h3>📖 Fish Journal <span id="journal-count" style="font-size:11px;color:var(--color-text-secondary);font-weight:400;"></span></h3><button class="close-btn" onclick="dismissActivePanel()">✕</button></div>
+    <div class="panel-body"><div id="journal-sub"></div><div id="journal-grid"></div></div>
+  </div>
+</div>
+<div id="quest-overlay" class="overlay">
+  <div class="panel">
+    <div class="panel-header"><h3>📜 Active Quests</h3><button class="close-btn" onclick="dismissActivePanel()">✕</button></div>
+    <div class="panel-body"><div id="main-goal"></div><div class="sec-label">Side Quests</div><div id="quest-list-overlay"></div></div>
+  </div>
+</div>
+</div>
+<div id="save-toast">💾 Saved</div>
+<script src="game.js"></script>
+
+</body></html>
