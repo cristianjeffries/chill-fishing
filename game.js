@@ -33,6 +33,28 @@ function skyAlpha(){
   return Math.max(0,(Math.cos(angle)+1)/2*0.88);// peaks at 0 (midnight) and 0 (noon)
   // Actually: noon=t=0, dusk=t=0.5*(DAY_DUR/FULL_CYCLE)
 }
+const TUTORIAL_PAGES=[
+  {title:'\ud83c\udfa3 Welcome to Chill Fishing',html:'<p class="intro-p">You\'re a fisherman with a simple goal: <b>collect as many different species of fish as you can.</b></p><p class="intro-p">Sail out, explore deeper zones, upgrade or swap your boat, and keep an eye out for rare fish that only surface during special events \u2014 like storms.</p>'},
+  {title:'Getting around',html:'<ul class="intro-list"><li><b>A / D</b> or <b>\u2190 / \u2192</b> \u2014 sail your boat</li><li><b>Hold Space</b> \u2014 charge a cast</li><li><b>W / S</b> or <b>\u2191 / \u2193</b> \u2014 aim your casting depth</li><li><b>Release Space</b> \u2014 cast your line</li></ul>'},
+  {title:'Reeling & menus',html:'<ul class="intro-list"><li><b>Space</b> \u2014 reel in when a fish bites</li><li><b>R</b> \u2014 retrieve your line</li><li><b>Esc</b> \u2014 open the menu</li><li>Use the side <b>drawer</b> for quests, journal & cargo</li></ul><p class="intro-p" style="text-align:center;margin-top:14px;">Good luck, and have fun! \ud83d\udc1f</p>'}
+];
+let tutorialPage=0,tutorialMode='intro';
+function openTutorial(mode){tutorialMode=mode;tutorialPage=0;introOpen=true;if(mode==='review')document.getElementById('pause-menu').classList.add('hidden');document.getElementById('intro-overlay').classList.add('open');renderTutorialPage();}
+function renderTutorialPage(){
+  const p=TUTORIAL_PAGES[tutorialPage],last=tutorialPage>=TUTORIAL_PAGES.length-1;
+  document.getElementById('tut-title').innerHTML=p.title;
+  document.getElementById('tut-content').innerHTML=p.html;
+  document.getElementById('tut-prev').style.visibility=tutorialPage>0?'visible':'hidden';
+  document.getElementById('tut-next').style.display=last?'none':'';
+  const sb=document.getElementById('tut-start');sb.style.display=last?'':'none';sb.textContent=tutorialMode==='review'?'Done':'Start fishing';
+  document.getElementById('tut-close').style.display=tutorialMode==='review'?'':'none';
+  document.getElementById('tut-dots').innerHTML=TUTORIAL_PAGES.map((_,i)=>`<span class="tut-dot${i===tutorialPage?' on':''}"></span>`).join('');
+}
+function tutorialGo(dir){tutorialPage=Math.max(0,Math.min(TUTORIAL_PAGES.length-1,tutorialPage+dir));renderTutorialPage();}
+function finishTutorial(){document.getElementById('intro-overlay').classList.remove('open');introOpen=false;if(tutorialMode==='intro')tutorialSeen.intro=true;else document.getElementById('pause-menu').classList.remove('hidden');}
+function closeTutorialReview(){document.getElementById('intro-overlay').classList.remove('open');introOpen=false;document.getElementById('pause-menu').classList.remove('hidden');}
+function devResetTutorial(){tutorialSeen={};setMsg('Tutorial reset \u2014 will show on next New Game');}
+function devResetSave(){resetNewGame();tutorialSeen={};saveGame();setMsg('Save reset to a fresh game');}
 function makeBolt(){
   let x=CW*(0.2+Math.random()*0.6);const segs=6+Math.floor(Math.random()*4),endY=WY-8;const pts=[[x,-6]];
   for(let i=1;i<=segs;i++){const y=endY*i/segs;x+=(Math.random()-0.5)*46;pts.push([x,y]);}
@@ -120,6 +142,17 @@ let ownedBoats={skiff:true,trawler:false,speedboat:false};
 let hasAutopilot=false;let autoTravelTarget=null;let autoTravelActive=false;let travelDests=[];let travelIdx=0;
 let weather='clear',weatherFx='clear',weatherAmt=0,weatherTimer=80+Math.random()*80,devWeatherLock=false;
 let stormActive=false,lightningFlash=0,lightningTimer=0,lightningNext=0,lightningBolt=null;
+let tutorialSeen={},activeHint=null,hintTimeout=null,pendingIntro=false,introOpen=false;
+let devUnlocked=false,devSeq='',devSeqT=0;
+// ---- Harbor scene ----
+const HARBOR_W=1600,HARBOR_MIN=120,HARBOR_MAX=1540,HARBOR_WATER='#3f7fa8';
+const HARBOR_BUILDINGS=[
+  {id:'shop', wx:300, w:84, h:96, wall:'#E4A94E',roof:'#8a3b2e',flag:'#d98a3a',sign:'SHOP', label:'Supply Shop'},
+  {id:'ships',wx:560, w:98, h:112,wall:'#4E9BB0',roof:'#2e5a6a',flag:'#3a7d94',sign:'SHIPS',label:'Shipwright'},
+  {id:'nav',  wx:940, w:74, h:146,wall:'#C65D57',roof:'#6a2e2e',flag:'#d0473e',sign:'NAV',  label:'Harbormaster'},
+  {id:'fish', wx:1300,w:126,h:116,wall:'#5BB08A',roof:'#2e6a4f',flag:'#39b07f',sign:'FISH', label:'Fishmonger',big:true}
+]
+let harborNear=null,harborAtExit=false,sceneFade=0,fadePhase=null,fadeAction=null;
 const rainDrops=Array.from({length:90},()=>({x:Math.random()*CW,y:Math.random()*WY,len:8+Math.random()*10,spd:430+Math.random()*260}));
 const rainSplashes=[];
 let activeBoat='skiff';
@@ -373,6 +406,7 @@ const reefDecor=(function(){const a=[];let x=4040;const P=REEF_PALETTE;const pc=
 // Title screen
 const TITLE_LIFT=232;
 let gameMode='title';// title | descending | play | ascending
+function canPlay(){return gameMode==='play'&&!introOpen;}
 let titleLift=TITLE_LIFT,titleTargetLift=TITLE_LIFT,uiAlpha=0;
 let zoneAnnounceId=null,zoneTitleT=0,zoneTitleName='';
 let hudPulse=0,_hudG=-1,_hudH=-1,_hudX=-1,_hudL=-1;
@@ -387,23 +421,26 @@ function loop(ts){const dt=Math.min((ts-lastT)/1000,.05);lastT=ts;try{update(dt,
 function update(dt,ts){
   // Title screen / transition: camera lift + UI fade + birds
   titleLift+=(titleTargetLift-titleLift)*Math.min(1,dt*1.05);
-  uiAlpha+=(((gameMode==='play')?1:0)-uiAlpha)*Math.min(1,dt*3);
+  uiAlpha+=((((gameMode==='play'||gameMode==='harbor')&&!introOpen)?1:0)-uiAlpha)*Math.min(1,dt*3);
   for(const b of birds){b.wx+=b.spd*dt;b.flap+=dt*6.5;if(b.wx>CW+45)b.wx=-45;}
-  if(gameMode==='descending'&&titleLift<1.5){titleLift=0;gameMode='play';}
+  if(gameMode==='descending'&&titleLift<1.5){titleLift=0;gameMode='play';if(pendingIntro){pendingIntro=false;if(!tutorialSeen.intro)openTutorial('intro');}}
   if(gameMode==='ascending'&&titleLift>TITLE_LIFT-1.5){titleLift=TITLE_LIFT;gameMode='title';showTitleOverlay();}
-  {const d=document.getElementById('drawer');if(d){d.style.opacity=uiAlpha;d.style.pointerEvents=uiAlpha>0.6?'auto':'none';if(gameMode!=='play'&&drawerOpen)closeMenuAll();}}
+  {const d=document.getElementById('drawer');if(d){const dh=gameMode==='harbor';d.style.opacity=dh?0:uiAlpha;d.style.pointerEvents=(!dh&&uiAlpha>0.6)?'auto':'none';if(gameMode!=='play'&&drawerOpen)closeMenuAll();}}
   const playing=gameMode==='play';
+  if(fadePhase==='out'){sceneFade=Math.min(1,sceneFade+dt*3.2);if(sceneFade>=1){if(fadeAction){fadeAction();fadeAction=null;}fadePhase='in';}}
+  else if(fadePhase==='in'){sceneFade=Math.max(0,sceneFade-dt*3.2);if(sceneFade<=0)fadePhase=null;}
   // HUD readout: pulse/brighten when a tracked value changes, else idle-fade
   if(gold!==_hudG||inventory.length!==_hudH||playerXP!==_hudX||playerLevel!==_hudL){if(_hudG!==-1)hudPulse=2.2;_hudG=gold;_hudH=inventory.length;_hudX=playerXP;_hudL=playerLevel;}
   if(hudPulse>0)hudPulse-=dt;
-  {const tgt=hexToRgb(zoneAt(boat.x).waterColor);if(!waterRGB)waterRGB={...tgt};const k=Math.min(1,dt*2.5);waterRGB.r+=(tgt.r-waterRGB.r)*k;waterRGB.g+=(tgt.g-waterRGB.g)*k;waterRGB.b+=(tgt.b-waterRGB.b)*k;}
+  {const tgt=hexToRgb(gameMode==='harbor'?HARBOR_WATER:zoneAt(boat.x).waterColor);if(!waterRGB)waterRGB={...tgt};const k=Math.min(1,dt*2.5);waterRGB.r+=(tgt.r-waterRGB.r)*k;waterRGB.g+=(tgt.g-waterRGB.g)*k;waterRGB.b+=(tgt.b-waterRGB.b)*k;}
   updateWeather(dt);
   // Time of day (paused on the title screen)
-  if(playing)timeOfDay=(timeOfDay+dt)%FULL_CYCLE;
+  if(playing||gameMode==='harbor')timeOfDay=(timeOfDay+dt)%FULL_CYCLE;
   const tl=getTimeLabel();
 
   // Boat
-  const canMove=playing&&((hookState==='idle'&&!charging)||hookState==='retrieving');
+  const sailing=playing||gameMode==='harbor';
+  const canMove=sailing&&((hookState==='idle'&&!charging)||hookState==='retrieving');
   const maxV=boatSpd(),accel=maxV*3.2;
   if(canMove){
     const mL=keys['ArrowLeft']||keys['a']||keys['A'],mR=keys['ArrowRight']||keys['d']||keys['D'];
@@ -417,16 +454,18 @@ function update(dt,ts){
     boat.vx=Math.max(-maxV,Math.min(maxV,boat.vx));
   }else boat.vx*=(1-Math.min(1,dt*3.5));
   if(Math.abs(boat.vx)>20) boat.facing=boat.vx>0?1:-1;
-  boat.x=Math.max(minBoatX(),Math.min(maxBoatX(),boat.x+boat.vx*dt));
-  for(const z of ZONES)if(!z.unlocked&&boat.x>=z.wx-10){boat.x=z.wx-10;boat.vx=Math.min(0,boat.vx);}
+  const _minX=gameMode==='harbor'?HARBOR_MIN:minBoatX(),_maxX=gameMode==='harbor'?HARBOR_MAX:maxBoatX();
+  boat.x=Math.max(_minX,Math.min(_maxX,boat.x+boat.vx*dt));
+  if(gameMode==='play')for(const z of ZONES)if(!z.unlocked&&boat.x>=z.wx-10){boat.x=z.wx-10;boat.vx=Math.min(0,boat.vx);}
   camX+=(boat.x-CW/2-camX)*Math.min(1,dt*7);
-  camX=Math.max(0,Math.min(WW-CW,camX));
+  const _worldW=gameMode==='harbor'?HARBOR_W:WW;camX=Math.max(0,Math.min(_worldW-CW,camX));
   let camYTarget=0;
   if(hookState==='sinking'||hookState==='waiting'||hookState==='biting'||hookState==='reeling'||hookState==='reeling_ready'){
     camYTarget=Math.max(0,Math.min(SEA_BOTTOM+16-CH, hookY-WY-110));
   }
   camY+=(camYTarget-camY)*Math.min(1,dt*3);
   atMarket=playing&&boat.x<LW+80&&hookState==='idle';
+  if(gameMode==='harbor'){harborNear=null;let best=72;for(const b of HARBOR_BUILDINGS){const d=Math.abs(boat.x-b.wx);if(d<best){best=d;harborNear=b;}}harborAtExit=boat.x>HARBOR_W-150;}else{harborNear=null;harborAtExit=false;}
   // Zone-entry title flourish
   if(playing){const cz0=zoneAt(boat.x);if(cz0.id!==zoneAnnounceId){if(zoneAnnounceId!==null){zoneTitleName=cz0.label;zoneTitleT=2.8;}zoneAnnounceId=cz0.id;}}
   if(zoneTitleT>0)zoneTitleT-=dt;
@@ -576,7 +615,7 @@ function showOnlinePopup(ft){
 }
 function hideOnlinePopup(){document.getElementById('online-popup').classList.add('hidden');}
 
-function startReel(){
+function startReel(){if(!canPlay())return;
   clearTimeout(reelTimeout);if(hookState!=='reeling_ready')return;
   hideOnlinePopup();hookState='reeling';
   reelFishPos=.3+Math.random()*.4;reelIndPos=.5;reelIndVel=0;reelZoneW=reelZW();reelZonePos=reelIndPos-reelZoneW/2;
@@ -658,7 +697,7 @@ function fishCaught(){
 }
 function fishEscaped(){reelHolding=false;hideOnlinePopup();if(currentFish){currentFish.state='swim';currentFish=null;}hookState='retrieving';setMsg('It got away!');}
 function missedBite(){reelHolding=false;hideOnlinePopup();if(currentFish){currentFish.state='swim';currentFish=null;}hookState='retrieving';setMsg('It got away!');}
-function retrieveHook(){if(hookState==='idle')return;clearTimeout(reelTimeout);if(currentFish){currentFish.state='swim';currentFish=null;}reelHolding=false;hideOnlinePopup();charging=false;chargeVal=0;chargeDir=1;hookState='retrieving';setMsg('Retrieving…');}
+function retrieveHook(){if(!canPlay())return;if(hookState==='idle')return;clearTimeout(reelTimeout);if(currentFish){currentFish.state='swim';currentFish=null;}reelHolding=false;hideOnlinePopup();charging=false;chargeVal=0;chargeDir=1;hookState='retrieving';setMsg('Retrieving…');}
 
 let hudMsg='';
 let hudHint='';
@@ -770,7 +809,11 @@ function renderQuestPanel(){
   }
 }
 function closeQuests(){document.getElementById('quest-overlay').classList.remove('open');}
-function openShop(){buildShopUI();document.getElementById('shop-overlay').classList.add('open');}
+const VENDOR_TITLES={fish:'\ud83d\udc1f Fishmonger',shop:'\ud83d\uded2 Supply Shop',ships:'\u2693 Shipwright',nav:'\ud83e\udded Harbormaster'};
+function openShop(vendor){buildShopUI();const v=vendor||'fish';
+  const t=document.getElementById('shop-title');if(t)t.textContent=VENDOR_TITLES[v]||'\ud83c\udfea Harbor';
+  document.querySelectorAll('#shop-overlay .vsec').forEach(el=>{el.style.display=(el.dataset.v===v)?'':'none';});
+  document.getElementById('shop-overlay').classList.add('open');}
 function closeShop(){document.getElementById('shop-overlay').classList.remove('open');}
 async function sellAll(){
   const total=inventory.reduce((s,i)=>s+i.value,0);if(!total)return;
@@ -855,15 +898,16 @@ function buildShopUI(){
   for(const q of activeQuests){const card=document.createElement('div');card.className='quest-card'+(q.completed?' done-card':'');const pct=Math.round(q.progress/q.target*100);card.innerHTML=`<div class="qtitle">${q.title}</div><div class="qdesc">${q.desc}</div><div class="quest-progress-bar"><div class="quest-progress-fill" style="width:${pct}%"></div></div><div class="qreward">+${q.reward.xp}XP${q.reward.gold?` +${q.reward.gold}g`:''} · ${q.progress}/${q.target}</div>`;ql.appendChild(card);}
   document.getElementById('save-info').textContent=saveTimestamp?`Saved ${new Date(saveTimestamp).toLocaleTimeString()} · Lv${playerLevel} · ${totalCaught} caught`:'Not saved yet.';
 }
-async function saveGame(){try{const d={gold,inventory:inventory.map(i=>({typeName:i.type.name,value:i.value,cm:i.cm,weight:i.weight})),upgLevels,zoneUnlocked,playerXP,playerLevel,totalCaught,totalEarned,seenFish,activeQuests,completedQuestIds,questEarnedGold,perfectCasts,timeOfDay,questNews,journalNews,fishNews,ownedBoats,activeBoat,hasAutopilot,savedAt:Date.now()};await window.storage.set(SAVE_KEY,JSON.stringify(d));saveTimestamp=d.savedAt;showToast('💾 Saved');}catch(e){showToast('⚠️ Failed');}}
-async function loadGame(){try{const res=await window.storage.get(SAVE_KEY);if(!res)return false;const d=JSON.parse(res.value);gold=d.gold||0;inventory=(d.inventory||[]).map(it=>({type:FISH_DEFS.find(f=>f.name===it.typeName)||FISH_DEFS[0],typeName:it.typeName,value:it.value||0,cm:it.cm,weight:it.weight}));upgLevels={...{rod:0,bait:0,boat:0,hold:0,depth:0},...(d.upgLevels||{})};zoneUnlocked={...{shallow:true,deep:false,reef:false,abyss:false},...(d.zoneUnlocked||{})};playerXP=d.playerXP||0;playerLevel=d.playerLevel||1;totalCaught=d.totalCaught||0;totalEarned=d.totalEarned||0;seenFish=d.seenFish||{};activeQuests=(d.activeQuests||[]);completedQuestIds=d.completedQuestIds||[];questEarnedGold=d.questEarnedGold||0;perfectCasts=d.perfectCasts||0;timeOfDay=d.timeOfDay||0;questNews=!!d.questNews;journalNews=!!d.journalNews;fishNews=d.fishNews||{};ownedBoats={...{skiff:true,trawler:false,speedboat:false},...(d.ownedBoats||{})};activeBoat=d.activeBoat||'skiff';if(!ownedBoats[activeBoat])activeBoat='skiff';hasAutopilot=!!d.hasAutopilot;updateAutopilotUI();saveTimestamp=d.savedAt||null;return true;}catch(e){return false;}}
+async function saveGame(){try{const d={gold,inventory:inventory.map(i=>({typeName:i.type.name,value:i.value,cm:i.cm,weight:i.weight})),upgLevels,zoneUnlocked,playerXP,playerLevel,totalCaught,totalEarned,seenFish,activeQuests,completedQuestIds,questEarnedGold,perfectCasts,timeOfDay,questNews,journalNews,fishNews,ownedBoats,activeBoat,hasAutopilot,tutorialSeen,savedAt:Date.now()};await window.storage.set(SAVE_KEY,JSON.stringify(d));saveTimestamp=d.savedAt;showToast('💾 Saved');}catch(e){showToast('⚠️ Failed');}}
+async function loadGame(){try{const res=await window.storage.get(SAVE_KEY);if(!res)return false;const d=JSON.parse(res.value);gold=d.gold||0;inventory=(d.inventory||[]).map(it=>({type:FISH_DEFS.find(f=>f.name===it.typeName)||FISH_DEFS[0],typeName:it.typeName,value:it.value||0,cm:it.cm,weight:it.weight}));upgLevels={...{rod:0,bait:0,boat:0,hold:0,depth:0},...(d.upgLevels||{})};zoneUnlocked={...{shallow:true,deep:false,reef:false,abyss:false},...(d.zoneUnlocked||{})};playerXP=d.playerXP||0;playerLevel=d.playerLevel||1;totalCaught=d.totalCaught||0;totalEarned=d.totalEarned||0;seenFish=d.seenFish||{};activeQuests=(d.activeQuests||[]);completedQuestIds=d.completedQuestIds||[];questEarnedGold=d.questEarnedGold||0;perfectCasts=d.perfectCasts||0;timeOfDay=d.timeOfDay||0;questNews=!!d.questNews;journalNews=!!d.journalNews;fishNews=d.fishNews||{};ownedBoats={...{skiff:true,trawler:false,speedboat:false},...(d.ownedBoats||{})};activeBoat=d.activeBoat||'skiff';if(!ownedBoats[activeBoat])activeBoat='skiff';hasAutopilot=!!d.hasAutopilot;updateAutopilotUI();tutorialSeen=d.tutorialSeen||{};saveTimestamp=d.savedAt||null;return true;}catch(e){return false;}}
 async function confirmReset(){if(confirm('Reset all progress?'))resetGame();}
 async function resetGame(){try{await window.storage.delete(SAVE_KEY);}catch(e){}gold=0;inventory=[];upgLevels={rod:0,bait:0,boat:0,hold:0,depth:0};zoneUnlocked={shallow:true,deep:false,reef:false,abyss:false};playerXP=0;playerLevel=1;totalCaught=0;totalEarned=0;seenFish={};activeQuests=[];completedQuestIds=[];questEarnedGold=0;perfectCasts=0;timeOfDay=0;fishNews={};ownedBoats={skiff:true,trawler:false,speedboat:false};activeBoat='skiff';hasAutopilot=false;autoTravelTarget=null;updateAutopilotUI();saveTimestamp=null;boat.x=600;boat.vx=0;syncZones();pickNewQuests();renderQuestBar();updateHUD();renderInventoryBar();buildShopUI();showToast('🗑 Reset');}
 let toastTimer=null;
 function showToast(msg){const t=document.getElementById('save-toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2200);}
 function setMsg(m){hudMsg=m;msgTimer=3;}
 function updateHint(){
-  if(atMarket)hudHint='tap water or press shop · browse upgrades & sell fish';
+  if(gameMode==='harbor'){hudHint=harborNear?('press Space / tap to visit the '+harborNear.label):(harborAtExit?'press Space / tap to sail out to sea':'sail up to a building to visit · sail right to leave');return;}
+  if(atMarket)hudHint='press Space / tap to enter the harbor';
   else if(hookState==='idle'&&charging)hudHint='release in the green zone to land on your set depth · bonus XP';
   else if(hookState==='idle')hudHint='W/S set cast depth · hold to charge, release to cast · sail left to market';
   else if(hookState==='sinking'||hookState==='waiting')hudHint='hook in water · R to retrieve';
@@ -880,9 +924,113 @@ function updateHint(){
 }
 function wx2sx(wx){return wx-camX;}
 
+// ---- Harbor rendering & flow ----
+function dk(hex,f){const c=hexToRgb(hex);return `rgb(${Math.round(c.r*f)},${Math.round(c.g*f)},${Math.round(c.b*f)})`;}
+const HARBOR_BG=(()=>{const arr=[];const cols=['#6f8a9a','#7d9488','#9a8f7a','#88808f','#6e8f9c','#8a7f72'];
+  const clusters=[[40,4],[350,3],[560,4],[880,2],[1040,4],[1330,3]];let n=0;
+  for(const cl of clusters){let wx=cl[0];for(let k=0;k<cl[1];k++){const w=32+((n*23)%30),h=44+((n*57)%84);arr.push({wx:wx+w/2,w,h,col:cols[n%cols.length],chimney:(n%4===1)});wx+=w+6+((n*11)%14);n++;}}
+  return arr;})();
+function drawHarborBg(nightOv){const baseY=WY-6;for(const b of HARBOR_BG){const sx=wx2sx(b.wx);if(sx<-b.w-10||sx>CW+b.w+10)continue;
+  ctx.fillStyle=dk(b.col,0.78-nightOv*0.45);ctx.fillRect(sx-b.w/2,baseY-b.h,b.w,b.h);
+  ctx.fillStyle=dk(b.col,0.6-nightOv*0.4);ctx.beginPath();ctx.moveTo(sx-b.w/2-3,baseY-b.h);ctx.lineTo(sx,baseY-b.h-14);ctx.lineTo(sx+b.w/2+3,baseY-b.h);ctx.closePath();ctx.fill();
+  if(nightOv>.35){ctx.fillStyle='rgba(255,213,74,0.7)';for(let wy=baseY-b.h+14;wy<baseY-14;wy+=22){ctx.fillRect(sx-b.w*0.28,wy,6,6);ctx.fillRect(sx+b.w*0.10,wy,6,6);}}
+  if(b.chimney){const cx=sx+b.w*0.22,cyt=baseY-b.h;ctx.fillStyle=dk('#4f4436',1-nightOv*0.5);ctx.fillRect(cx-3,cyt-10,6,12);const t=Date.now()*0.001;for(let i=0;i<3;i++){const ph=((t*0.4+i*0.55)%1.6);const yy=cyt-12-ph*28,al=(1-ph/1.6)*0.3*(1-nightOv*0.25),rr=3+ph*4;if(al<=0.02)continue;ctx.fillStyle=`rgba(206,208,212,${al})`;ctx.beginPath();ctx.arc(cx+Math.sin(ph*3+b.wx)*4,yy,rr,0,Math.PI*2);ctx.fill();}}
+}}
+function drawLighthouse(nightOv){const sx=560-camX*0.18;if(sx<-60||sx>CW+60)return;const baseY=WY-6,H=132,topW=20,botW=30;
+  if(nightOv>0.3){const lx=sx,ly=baseY-H-7,ang=-Math.PI/2+Math.sin(Date.now()*0.0004)*0.95,sp=0.11,len=300,a=(nightOv-0.3)*0.24;
+    const g=ctx.createLinearGradient(lx,ly,lx+Math.cos(ang)*len,ly+Math.sin(ang)*len);g.addColorStop(0,`rgba(255,240,180,${a})`);g.addColorStop(1,'rgba(255,240,180,0)');ctx.fillStyle=g;
+    ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(lx+Math.cos(ang-sp)*len,ly+Math.sin(ang-sp)*len);ctx.lineTo(lx+Math.cos(ang+sp)*len,ly+Math.sin(ang+sp)*len);ctx.closePath();ctx.fill();}
+  ctx.beginPath();ctx.moveTo(sx-botW/2,baseY);ctx.lineTo(sx-topW/2,baseY-H);ctx.lineTo(sx+topW/2,baseY-H);ctx.lineTo(sx+botW/2,baseY);ctx.closePath();
+  ctx.fillStyle=dk('#e9edf0',1-nightOv*0.5);ctx.fill();
+  // red bands
+  ctx.save();ctx.clip();ctx.fillStyle=dk('#d0473e',1-nightOv*0.5);for(let i=0;i<4;i++){ctx.fillRect(sx-botW,baseY-H+i*H*0.5/2*2*0.5,botW*2,H*0.12);}ctx.restore();
+  // lamp room
+  ctx.fillStyle=dk('#3a4a58',1-nightOv*0.5);ctx.fillRect(sx-topW/2-3,baseY-H-14,topW+6,14);
+  const lamp=nightOv>.3?'#FFE07A':'#bfe6f5';ctx.fillStyle=lamp;ctx.fillRect(sx-topW/2+2,baseY-H-12,topW-4,10);
+  if(nightOv>.3){ctx.fillStyle='rgba(255,224,122,0.28)';ctx.beginPath();ctx.arc(sx,baseY-H-7,20,0,Math.PI*2);ctx.fill();}
+  ctx.fillStyle=dk('#2a3644',1-nightOv*0.5);ctx.beginPath();ctx.moveTo(sx-topW/2-5,baseY-H-14);ctx.lineTo(sx,baseY-H-26);ctx.lineTo(sx+topW/2+5,baseY-H-14);ctx.closePath();ctx.fill();
+}
+function pCrate(sx,by,n,s){s=s||16;ctx.fillStyle=dk('#b07f43',1-n*0.5);ctx.fillRect(sx-s/2,by-s,s,s);ctx.strokeStyle=dk('#7a5427',1-n*0.5);ctx.lineWidth=1.5;ctx.strokeRect(sx-s/2,by-s,s,s);ctx.beginPath();ctx.moveTo(sx-s/2,by-s);ctx.lineTo(sx+s/2,by);ctx.moveTo(sx+s/2,by-s);ctx.lineTo(sx-s/2,by);ctx.stroke();}
+function pCrateStack(sx,by,n){pCrate(sx-6,by,n,18);pCrate(sx+10,by,n,15);pCrate(sx,by-18,n,14);}
+function pBarrel(sx,by,n){const w=14,h=20;ctx.fillStyle=dk('#8a5a33',1-n*0.5);ctx.beginPath();ctx.roundRect(sx-w/2,by-h,w,h,4);ctx.fill();ctx.strokeStyle=dk('#5e3c1f',1-n*0.5);ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(sx-w/2,by-h*0.7);ctx.lineTo(sx+w/2,by-h*0.7);ctx.moveTo(sx-w/2,by-h*0.35);ctx.lineTo(sx+w/2,by-h*0.35);ctx.stroke();}
+function pBollard(sx,by,n){ctx.fillStyle=dk('#4a3a28',1-n*0.5);ctx.beginPath();ctx.roundRect(sx-5,by-20,10,20,3);ctx.fill();ctx.beginPath();ctx.arc(sx,by-20,6,Math.PI,0);ctx.fill();ctx.strokeStyle=dk('#8a6a3e',1-n*0.5);ctx.lineWidth=2;ctx.beginPath();ctx.arc(sx,by-9,8,0.15*Math.PI,0.85*Math.PI);ctx.stroke();}
+function pLamp(sx,by,n){const on=n>.3;if(on){const rg=ctx.createLinearGradient(sx,WY+2,sx,WY+46);rg.addColorStop(0,'rgba(255,224,122,0.22)');rg.addColorStop(1,'rgba(255,224,122,0)');ctx.fillStyle=rg;ctx.fillRect(sx-4,WY+2,8,44);}ctx.strokeStyle=dk('#2f3b46',1-n*0.4);ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(sx,by);ctx.lineTo(sx,by-46);ctx.stroke();if(on){ctx.fillStyle='rgba(255,224,122,0.22)';ctx.beginPath();ctx.arc(sx,by-50,22,0,Math.PI*2);ctx.fill();}ctx.fillStyle=on?'#FFE08A':dk('#8a97a0',1-n*0.4);ctx.beginPath();ctx.roundRect(sx-5,by-56,10,12,3);ctx.fill();}
+function pNet(sx,by,n){ctx.strokeStyle=dk('#cabf94',1-n*0.5);ctx.lineWidth=1;const w=24,h=18;for(let i=-2;i<=2;i++){ctx.beginPath();ctx.moveTo(sx+i*5,by);ctx.lineTo(sx+i*5,by-h);ctx.stroke();}for(let j=0;j<4;j++){ctx.beginPath();ctx.moveTo(sx-w/2,by-j*5);ctx.lineTo(sx+w/2,by-j*5);ctx.stroke();}}
+function pRing(sx,by,n){ctx.lineWidth=4;ctx.strokeStyle=dk('#e6e6e6',1-n*0.5);ctx.beginPath();ctx.arc(sx,by-13,9,0,Math.PI*2);ctx.stroke();ctx.strokeStyle=dk('#d0473e',1-n*0.5);ctx.setLineDash([5,5]);ctx.beginPath();ctx.arc(sx,by-13,9,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);}
+function pBasket(sx,by,n){ctx.fillStyle=dk('#c9a05a',1-n*0.5);ctx.beginPath();ctx.moveTo(sx-11,by-14);ctx.lineTo(sx+11,by-14);ctx.lineTo(sx+8,by);ctx.lineTo(sx-8,by);ctx.closePath();ctx.fill();ctx.strokeStyle=dk('#9c7638',1-n*0.5);ctx.lineWidth=1;ctx.stroke();ctx.fillStyle=dk('#8fbfd8',1-n*0.4);ctx.beginPath();ctx.ellipse(sx-3,by-15,5,3,-0.3,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(sx+4,by-16,5,3,0.3,0,Math.PI*2);ctx.fill();}
+function pRodBarrel(sx,by,n){pBarrel(sx,by,n);ctx.strokeStyle=dk('#c9a05a',1-n*0.4);ctx.lineWidth=1.6;for(let i=-1;i<=1;i++){ctx.beginPath();ctx.moveTo(sx+i*3,by-16);ctx.lineTo(sx+i*7-5,by-46);ctx.stroke();}}
+function pBaitTable(sx,by,n){const w=28,h=13;ctx.fillStyle=dk('#8a6a3e',1-n*0.5);ctx.fillRect(sx-w/2,by-h,w,3);ctx.fillStyle=dk('#6e522e',1-n*0.5);ctx.fillRect(sx-w/2+2,by-h,3,h);ctx.fillRect(sx+w/2-5,by-h,3,h);ctx.fillStyle=dk('#4E9BB0',1-n*0.5);ctx.fillRect(sx-11,by-h-8,10,8);ctx.fillStyle=dk('#C65D57',1-n*0.5);ctx.fillRect(sx+1,by-h-7,9,7);ctx.fillStyle=dk('#d9c25a',1-n*0.5);ctx.fillRect(sx-3,by-h-6,6,6);}
+function pAnchor(sx,by,n){ctx.strokeStyle=dk('#5a6570',1-n*0.4);ctx.lineWidth=3;const topY=by-34;ctx.beginPath();ctx.moveTo(sx,topY);ctx.lineTo(sx,by-6);ctx.stroke();ctx.beginPath();ctx.arc(sx,topY-4,4,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(sx-9,topY+8);ctx.lineTo(sx+9,topY+8);ctx.stroke();ctx.beginPath();ctx.arc(sx,by-8,12,0.12*Math.PI,0.88*Math.PI);ctx.stroke();ctx.beginPath();ctx.moveTo(sx-11,by-10);ctx.lineTo(sx-16,by-15);ctx.moveTo(sx+11,by-10);ctx.lineTo(sx+16,by-15);ctx.stroke();}
+function pSignpost(sx,by,n){ctx.strokeStyle=dk('#6e522e',1-n*0.5);ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(sx,by);ctx.lineTo(sx,by-42);ctx.stroke();const signs=[[-1,by-38,'#4E9BB0'],[1,by-29,'#d98a3a'],[-1,by-20,'#5BB08A']];for(const s of signs){const dir=s[0],yy=s[1],w=18;ctx.fillStyle=dk(s[2],1-n*0.45);ctx.beginPath();if(dir<0){ctx.moveTo(sx,yy-4);ctx.lineTo(sx-w+5,yy-4);ctx.lineTo(sx-w,yy);ctx.lineTo(sx-w+5,yy+4);ctx.lineTo(sx,yy+4);}else{ctx.moveTo(sx,yy-4);ctx.lineTo(sx+w-5,yy-4);ctx.lineTo(sx+w,yy);ctx.lineTo(sx+w-5,yy+4);ctx.lineTo(sx,yy+4);}ctx.closePath();ctx.fill();}}
+function pFishCrate(sx,by,n){pCrate(sx,by,n,18);ctx.fillStyle=dk('#cfe6f0',1-n*0.4);ctx.fillRect(sx-9,by-22,18,5);ctx.fillStyle=dk('#8fbfd8',1-n*0.4);ctx.beginPath();ctx.ellipse(sx-4,by-22,5,3,-0.3,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(sx+4,by-23,5,3,0.3,0,Math.PI*2);ctx.fill();ctx.fillStyle=dk('#7fb0d0',1-n*0.4);ctx.beginPath();ctx.moveTo(sx-9,by-22);ctx.lineTo(sx-13,by-25);ctx.lineTo(sx-13,by-19);ctx.closePath();ctx.fill();}
+function pRope(sx,by,n){ctx.strokeStyle=dk('#b7a271',1-n*0.5);ctx.lineWidth=2.5;for(let r=9;r>=3;r-=2.5){ctx.beginPath();ctx.ellipse(sx,by-4,r,r*0.5,0,0,Math.PI*2);ctx.stroke();}}
+const HARBOR_PROPS=[
+  {wx:150,t:'bollard'},{wx:190,t:'lamp'},
+  {wx:244,t:'baittable'},{wx:352,t:'rodbarrel'},{wx:368,t:'rope'},{wx:214,t:'ring'},
+  {wx:430,t:'crate'},{wx:448,t:'crate'},{wx:466,t:'barrel'},
+  {wx:508,t:'lamp'},{wx:620,t:'rope'},{wx:646,t:'net'},{wx:735,t:'bollard'},{wx:600,t:'ring'},
+  {wx:800,t:'barrel'},{wx:830,t:'lamp'},{wx:880,t:'bollard'},
+  {wx:888,t:'anchor'},{wx:1002,t:'signpost'},{wx:1024,t:'lamp'},{wx:962,t:'bollard'},
+  {wx:1120,t:'lamp'},{wx:1200,t:'basket'},{wx:1222,t:'fishcrate'},{wx:1216,t:'basket'},
+  {wx:1380,t:'fishcrate'},{wx:1400,t:'basket'},{wx:1370,t:'cratestack'},{wx:1432,t:'barrel'},{wx:1444,t:'lamp'},
+  {wx:1490,t:'bollard'},{wx:1520,t:'ring'}
+];
+function drawHarborProps(nightOv){const by=WY-6;for(const p of HARBOR_PROPS){const sx=wx2sx(p.wx);if(sx<-40||sx>CW+40)continue;
+  switch(p.t){case'crate':pCrate(sx,by,nightOv);break;case'cratestack':pCrateStack(sx,by,nightOv);break;case'barrel':pBarrel(sx,by,nightOv);break;case'bollard':pBollard(sx,by,nightOv);break;case'lamp':pLamp(sx,by,nightOv);break;case'net':pNet(sx,by,nightOv);break;case'ring':pRing(sx,by,nightOv);break;case'basket':pBasket(sx,by,nightOv);break;case'rope':pRope(sx,by,nightOv);break;case'rodbarrel':pRodBarrel(sx,by,nightOv);break;case'baittable':pBaitTable(sx,by,nightOv);break;case'anchor':pAnchor(sx,by,nightOv);break;case'signpost':pSignpost(sx,by,nightOv);break;case'fishcrate':pFishCrate(sx,by,nightOv);break;}
+}}
+function drawMooredShip(sx,y,id,n){ctx.save();ctx.translate(sx,y);ctx.scale(-1,1);const sc=id==='trawler'?0.9:id==='speedboat'?0.86:0.8;ctx.scale(sc,sc);drawBoatShape(ctx,id,n);ctx.restore();}
+function drawBuoy(sx,y,n){ctx.strokeStyle=dk('#333',1-n*0.4);ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(sx,y-11);ctx.lineTo(sx,y-19);ctx.stroke();ctx.fillStyle=dk('#333',1-n*0.4);ctx.beginPath();ctx.arc(sx,y-20,2,0,Math.PI*2);ctx.fill();ctx.fillStyle=dk('#d0473e',1-n*0.5);ctx.beginPath();ctx.arc(sx,y-6,6,0,Math.PI*2);ctx.fill();ctx.fillStyle=dk('#efe7d6',1-n*0.5);ctx.fillRect(sx-6,y-7,12,3);}
+function drawRowboat(sx,y,n){ctx.fillStyle=dk('#7a4a24',1-n*0.5);ctx.beginPath();ctx.moveTo(sx-16,y-4);ctx.quadraticCurveTo(sx,y+9,sx+16,y-4);ctx.lineTo(sx+13,y-8);ctx.lineTo(sx-13,y-8);ctx.closePath();ctx.fill();ctx.fillStyle=dk('#5e3617',1-n*0.5);ctx.fillRect(sx-13,y-9,26,2);}
+const HARBOR_WATER_OBJS=[{wx:665,t:'ship',slot:0},{wx:805,t:'ship',slot:1},{wx:1380,t:'boat'},{wx:1040,t:'buoy'},{wx:415,t:'buoy'}]
+const HARBOR_LADDERS=[440,980,1420];
+function drawHarborLadders(nightOv){const top=WY-4,bot=WY+30;ctx.strokeStyle=dk('#6e522e',1-nightOv*0.5);ctx.lineWidth=2.5;for(const wx of HARBOR_LADDERS){const sx=wx-camX;if(sx<-20||sx>CW+20)continue;ctx.beginPath();ctx.moveTo(sx-5,top);ctx.lineTo(sx-5,bot);ctx.moveTo(sx+5,top);ctx.lineTo(sx+5,bot);ctx.stroke();ctx.lineWidth=2;for(let y=top+6;y<bot;y+=8){ctx.beginPath();ctx.moveTo(sx-5,y);ctx.lineTo(sx+5,y);ctx.stroke();}ctx.lineWidth=2.5;}}
+function drawHarborWaterObjs(nightOv,ts){for(const o of HARBOR_WATER_OBJS){const sx=wx2sx(o.wx);if(sx<-30||sx>CW+30)continue;const bob=Math.sin(ts*0.002+o.wx)*2;if(o.t==='ship'){const others=BOAT_DEFS.filter(b=>b.id!==activeBoat).map(b=>b.id);const id=others[o.slot];if(id)drawMooredShip(sx,WY-13+bob,id,nightOv);}else if(o.t==='boat'){drawRowboat(sx,WY+11+bob,nightOv);}else{drawBuoy(sx,WY+11+bob,nightOv);}}}
+function startTransition(cb){if(fadePhase)return;fadePhase='out';fadeAction=cb;}
+function enterHarbor(){closeShop();setDrawerOpen(false);startTransition(()=>{gameMode='harbor';boat.x=HARBOR_W-100;boat.vx=0;camX=Math.max(0,Math.min(HARBOR_W-CW,boat.x-CW/2));harborNear=null;setMsg('Welcome to the harbor. Sail right to head out to sea.');});}
+function exitHarbor(){closeShop();startTransition(()=>{gameMode='play';boat.x=LW+170;boat.vx=0;camX=Math.max(0,Math.min(WW-CW,boat.x-CW/2));setMsg('Out to the open sea!');});}
+function harborInteract(){if(harborNear){openShop(harborNear.id);}else if(harborAtExit){exitHarbor();}}
+function drawHarborDock(nightOv){const y=WY-6,deckH=8;
+  ctx.fillStyle=dk('#8a6a3e',1-nightOv*0.5);ctx.fillRect(0,y,CW,deckH);
+  ctx.fillStyle=dk('#6e522e',1-nightOv*0.5);const s0=Math.floor(camX/18)*18;for(let wx=s0;wx<camX+CW+18;wx+=18)ctx.fillRect(wx-camX,y,2,deckH);
+  ctx.fillStyle=dk('#5b431f',1-nightOv*0.5);const p0=Math.floor(camX/90)*90;for(let wx=p0;wx<camX+CW+90;wx+=90)ctx.fillRect(wx-camX-3,y+deckH,6,CH-(y+deckH));
+  ctx.fillStyle='rgba(255,255,255,0.13)';for(let wx=p0;wx<camX+CW+90;wx+=90){ctx.beginPath();ctx.ellipse(wx-camX,WY+3,8,2.5,0,0,Math.PI*2);ctx.fill();}
+}
+function drawHarborBuilding(b,nightOv,hl){const sx=wx2sx(b.wx);if(sx<-b.w-20||sx>CW+b.w+20)return;const baseY=WY-6;
+  ctx.fillStyle=dk(b.wall,1-nightOv*0.55);ctx.fillRect(sx-b.w/2,baseY-b.h,b.w,b.h);
+  ctx.fillStyle=dk(b.roof,1-nightOv*0.55);ctx.beginPath();ctx.moveTo(sx-b.w/2-6,baseY-b.h);ctx.lineTo(sx-b.w*0.18,baseY-b.h-26);ctx.lineTo(sx+b.w*0.18,baseY-b.h-26);ctx.lineTo(sx+b.w/2+6,baseY-b.h);ctx.closePath();ctx.fill();
+  ctx.fillStyle=dk('#5C3410',1-nightOv*0.4);ctx.beginPath();ctx.roundRect(sx-9,baseY-26,18,26,2);ctx.fill();
+  const win=nightOv>.3?'#FFD54A':'#bfe6f5';[[-b.w*0.30,-b.h+16],[b.w*0.30-12,-b.h+16]].forEach(w=>{ctx.fillStyle=win;ctx.fillRect(sx+w[0],baseY+w[1],12,12);if(nightOv>.3){ctx.fillStyle='rgba(255,213,74,0.28)';ctx.beginPath();ctx.arc(sx+w[0]+6,baseY+w[1]+6,10,0,Math.PI*2);ctx.fill();}});
+  if(b.big){const ay=baseY-b.h+14;for(let i=0;i<Math.ceil(b.w/14);i++){ctx.fillStyle=i%2?'#efe7d6':'#c94a3f';ctx.fillRect(sx-b.w/2+i*14,ay,14,10);}
+    const fy=baseY-b.h+30,fc=['#c96b4a','#8fbfd8','#d9c25a','#9ac0a0'];for(let i=0;i<4;i++){const fx=sx-30+i*20;ctx.strokeStyle=dk('#555',1-nightOv*0.4);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(fx,fy-6);ctx.lineTo(fx,fy);ctx.stroke();ctx.fillStyle=dk(fc[i],1-nightOv*0.4);ctx.beginPath();ctx.ellipse(fx,fy+5,4,7,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.moveTo(fx,fy+11);ctx.lineTo(fx-3,fy+15);ctx.lineTo(fx+3,fy+15);ctx.closePath();ctx.fill();}}
+  ctx.fillStyle='#5C3410';ctx.fillRect(sx-24,baseY-b.h-4,48,14);ctx.fillStyle='#FAC775';ctx.font='bold 9px sans-serif';ctx.textAlign='center';ctx.fillText(b.sign,sx,baseY-b.h+6);ctx.textAlign='left';
+  if(b.flag){const peakY=baseY-b.h-26,poleTop=peakY-20;ctx.strokeStyle=dk('#6b5233',1-nightOv*0.4);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(sx,peakY);ctx.lineTo(sx,poleTop);ctx.stroke();const fw=Math.sin(Date.now()*0.004+b.wx)*3;ctx.fillStyle=dk(b.flag,1-nightOv*0.45);ctx.beginPath();ctx.moveTo(sx,poleTop);ctx.lineTo(sx+16,poleTop+4+fw);ctx.lineTo(sx,poleTop+9);ctx.closePath();ctx.fill();}
+  if(hl){ctx.strokeStyle='#1D9E75';ctx.lineWidth=2;ctx.setLineDash([5,3]);ctx.beginPath();ctx.roundRect(sx-b.w/2-5,baseY-b.h-30,b.w+10,b.h+34,6);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='rgba(0,0,0,0.55)';ctx.beginPath();ctx.roundRect(sx-52,baseY-b.h-54,104,18,6);ctx.fill();ctx.fillStyle='#7fe8c0';ctx.font='bold 10px sans-serif';ctx.textAlign='center';ctx.fillText('\u25b2 '+b.label,sx,baseY-b.h-41);ctx.textAlign='left';}
+}
+function drawHarborExit(nightOv){const sx=wx2sx(HARBOR_W-30);if(sx<-60||sx>CW+80)return;ctx.fillStyle='rgba(0,0,0,0.42)';ctx.beginPath();ctx.roundRect(sx-54,WY-72,108,18,6);ctx.fill();ctx.fillStyle=harborAtExit?'#7fe8c0':'#cfe6f0';ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.fillText('\u2192 Out to sea',sx,WY-59);ctx.textAlign='left';if(harborAtExit){ctx.strokeStyle='#1D9E75';ctx.lineWidth=2;ctx.setLineDash([5,3]);ctx.beginPath();ctx.roundRect(sx-34,WY-48,68,50,6);ctx.stroke();ctx.setLineDash([]);}}
+function drawHarborWorld(nightOv,ts){
+  ctx.fillStyle='#a9dcf0';ctx.fillRect(0,-320,CW,CH+TITLE_LIFT*2+320);
+  if(nightOv>0){ctx.fillStyle=`rgba(5,8,30,${nightOv*0.82})`;ctx.fillRect(0,-320,CW,WY+320);for(const s of stars){const a=nightOv*(.4+.6*Math.abs(Math.sin(s.twinkle)));ctx.globalAlpha=a;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;}
+  {const horizonY=WY-10,peakY=HUD_H+10,arcH=horizonY-peakY,arcL=CW*0.08,arcR=CW*0.92,ef=(p)=>Math.max(0,Math.min(1,Math.min(p,1-p)/0.07));
+   if(timeOfDay<DAY_DUR){const p=timeOfDay/DAY_DUR,x=arcL+(arcR-arcL)*p,y=horizonY-Math.sin(Math.PI*p)*arcH;ctx.globalAlpha=ef(p);ctx.fillStyle='rgba(255,215,0,0.22)';ctx.beginPath();ctx.arc(x,y,26,0,Math.PI*2);ctx.fill();ctx.fillStyle='#FFD700';ctx.beginPath();ctx.arc(x,y,16,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}
+   else{const p=(timeOfDay-DAY_DUR)/NIGHT_DUR,x=arcL+(arcR-arcL)*p,y=horizonY-Math.sin(Math.PI*p)*arcH,mR=15;ctx.globalAlpha=ef(p);const dg=ctx.createRadialGradient(x-mR*0.32,y-mR*0.32,mR*0.2,x,y,mR);dg.addColorStop(0,'#fbf6de');dg.addColorStop(1,'#e4daac');ctx.fillStyle=dg;ctx.beginPath();ctx.arc(x,y,mR,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}}
+  const wc=currentWaterColor(nightOv);ctx.fillStyle=wc;ctx.fillRect(0,WY,CW,CH-WY);
+  const wg=ctx.createLinearGradient(0,WY,0,CH);wg.addColorStop(0,'rgba(255,255,255,0.06)');wg.addColorStop(1,'rgba(0,20,40,0.28)');ctx.fillStyle=wg;ctx.fillRect(0,WY,CW,CH-WY);
+  drawLighthouse(nightOv);
+  drawHarborBg(nightOv);
+  drawHarborDock(nightOv);
+  drawHarborLadders(nightOv);
+  for(const b of HARBOR_BUILDINGS)drawHarborBuilding(b,nightOv,harborNear===b);
+  drawHarborProps(nightOv);
+  drawHarborWaterObjs(nightOv,ts);
+  drawHarborExit(nightOv);
+  drawBoat(wx2sx(boat.x),boat.y+5,boat.facing,nightOv);
+}
+function renderHarbor(ts){const nightOv=getNightOverlay();ctx.save();ctx.translate(0,-camY+titleLift);drawHarborWorld(nightOv,ts);ctx.restore();if(uiAlpha>0.01){ctx.globalAlpha=uiAlpha;drawCanvasHUD(nightOv);ctx.globalAlpha=1;}}
 // ── Render ──
 function render(ts){
   ctx.clearRect(0,0,CW,CH);
+  if(gameMode==='harbor'){renderHarbor(ts);if(sceneFade>0){ctx.fillStyle=`rgba(0,0,0,${sceneFade})`;ctx.fillRect(0,0,CW,CH);}return;}
   const cz=zoneAt(boat.x);const nightOv=getNightOverlay();
 
   ctx.save();ctx.translate(0,-camY+titleLift);
@@ -968,8 +1116,8 @@ function render(ts){
     const winColor=nightOv>.3?'#FFD700':'#aaddf5';ctx.fillStyle=winColor;ctx.fillRect(msx-22,WY-58,13,13);ctx.fillRect(msx+9,WY-58,13,13);
     if(nightOv>.3){ctx.fillStyle='rgba(255,215,0,0.3)';ctx.beginPath();ctx.ellipse(msx-16,WY-52,10,10,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(msx+16,WY-52,10,10,0,0,Math.PI*2);ctx.fill();}
     ctx.strokeStyle='#7B4A1E';ctx.lineWidth=1;ctx.strokeRect(msx-22,WY-58,13,13);ctx.strokeRect(msx+9,WY-58,13,13);
-    ctx.fillStyle='#5C3410';ctx.fillRect(msx-18,WY-76,36,11);ctx.fillStyle='#FAC775';ctx.font='bold 8px sans-serif';ctx.textAlign='center';ctx.fillText('🏪 MARKET',msx,WY-68);ctx.textAlign='left';
-    if(atMarket){ctx.strokeStyle='#1D9E75';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.beginPath();ctx.roundRect(wx2sx(65)-30,WY-98,60,98,6);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(0,0,0,0.5)';ctx.beginPath();ctx.roundRect(wx2sx(65)-28,WY-112,56,14,5);ctx.fill();ctx.fillStyle='#7fe8c0';ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText('Click to enter',wx2sx(65),WY-102);ctx.textAlign='left';}
+    ctx.fillStyle='#5C3410';ctx.fillRect(msx-18,WY-76,36,11);ctx.fillStyle='#FAC775';ctx.font='bold 8px sans-serif';ctx.textAlign='center';ctx.fillText('⚓ HARBOR',msx,WY-68);ctx.textAlign='left';
+    if(atMarket){ctx.strokeStyle='#1D9E75';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.beginPath();ctx.roundRect(wx2sx(65)-30,WY-98,60,98,6);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(0,0,0,0.5)';ctx.beginPath();ctx.roundRect(wx2sx(65)-28,WY-112,56,14,5);ctx.fill();ctx.fillStyle='#7fe8c0';ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText('Enter Harbor',wx2sx(65),WY-102);ctx.textAlign='left';}
   }}
 
 
@@ -1107,6 +1255,7 @@ function render(ts){
     const g=ctx.createLinearGradient(-110,0,110,0);g.addColorStop(0,'#fff7e8');g.addColorStop(0.55,'#FAC775');g.addColorStop(1,'#7fe8c0');ctx.fillStyle=g;ctx.fillText(zoneTitleName,0,0);
     ctx.restore();ctx.globalAlpha=1;ctx.textBaseline='alphabetic';ctx.textAlign='left';
   }
+  if(sceneFade>0){ctx.fillStyle=`rgba(0,0,0,${sceneFade})`;ctx.fillRect(0,0,CW,CH);}
 }
 
 function drawReelBar(){
@@ -1285,9 +1434,18 @@ function drawBoatShape(c,id,nightOv){
 // ── Input ──
 const keys={};
 window.addEventListener('keydown',e=>{
+  if(introOpen){
+    if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault();if(tutorialPage>=TUTORIAL_PAGES.length-1)finishTutorial();else tutorialGo(1);}
+    else if(e.key==='ArrowLeft'){e.preventDefault();tutorialGo(-1);}
+    else if(e.key==='Escape'&&tutorialMode==='review'){e.preventDefault();closeTutorialReview();}
+    else{e.preventDefault();}
+    return;
+  }
   keys[e.key]=true;
-  if(e.code==='Space'){e.preventDefault();if(hookState==='reeling_ready')startReel();else if(hookState==='reeling')reelHolding=true;else if(hookState==='idle'&&!charging)beginCharge();}
-  if(e.key==='r'||e.key==='R')retrieveHook();
+  {const pm=document.getElementById('pause-menu');const paused=pm&&!pm.classList.contains('hidden');
+   if(paused&&!devUnlocked&&e.key&&e.key.length===1&&/[a-zA-Z]/.test(e.key)){const now=performance.now();if(now-devSeqT>1000)devSeq='';devSeqT=now;devSeq=(devSeq+e.key.toLowerCase()).slice(-3);if(devSeq==='dev'){devUnlocked=true;const dv=document.getElementById('dev-tools');if(dv)dv.classList.remove('locked');setMsg('\ud83d\udee0 Dev tools unlocked');}}}
+  if(e.code==='Space'){e.preventDefault();if(gameMode==='harbor'){harborInteract();return;}if(!canPlay())return;if(hookState==='reeling_ready')startReel();else if(hookState==='reeling')reelHolding=true;else if(hookState==='idle'&&!charging)beginCharge();}
+  if((e.key==='r'||e.key==='R')&&canPlay())retrieveHook();
   if((e.key==='t'||e.key==='T')&&hasAutopilot&&gameMode==='play'){e.preventDefault();toggleTravel();}
   if(autoTravelActive&&!e.repeat){if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A'){e.preventDefault();cycleTravel(-1);}else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D'){e.preventDefault();cycleTravel(1);}}
   if(e.code==='Escape'&&autoTravelActive){deactivateTravel('Autopilot off.');return;}
@@ -1302,9 +1460,9 @@ function startCharge(ex,ey){
   if(cey<WY)return; // only water clicks
   beginCharge();
 }
-function beginCharge(){autoTravelTarget=null;
+function beginCharge(){if(!canPlay())return;autoTravelTarget=null;
   if(hookState!=='idle'||charging)return;
-  if(atMarket){openShop();return;}
+  if(atMarket){enterHarbor();return;}
   if(inventory.length>=holdCap()){setMsg('Your cargo is full! Sail to the market to sell your fish and free up space.');return;}
   const z=zoneAt(boat.x);if(!z.unlocked){setMsg(`Unlock ${z.label} at the 🏪 market!`);return;}
   charging=true;chargeVal=0;chargeDir=1;
@@ -1315,6 +1473,7 @@ function endCharge(){
 }
 
 canvas.addEventListener('mousedown',e=>{
+  if(gameMode==='harbor'){harborInteract();return;}
   const rect=canvas.getBoundingClientRect(),sc=CW/rect.width;
   const ex=(e.clientX-rect.left)*sc,ey=(e.clientY-rect.top)*sc;
   if(hookState==='reeling_ready'){startReel();return;}
@@ -1329,7 +1488,7 @@ canvas.addEventListener('touchstart',e=>{
   for(const t of e.touches){
     const ex=(t.clientX-rect.left)*sc,ey=(t.clientY-rect.top)*sc;
     if(hookState==='reeling_ready'){startReel();continue;}
-    if(hookState==='reeling'){reelHolding=true;continue;}
+    if(hookState==='reeling'&&canPlay()){reelHolding=true;continue;}
     if(ey>=WY)startCharge(ex,ey);
     const tx=ex/CW;if(ey<WY*.85&&!atMarket){if(tx<.35){keys['ArrowLeft']=true;keys['ArrowRight']=false;}else if(tx>.65){keys['ArrowRight']=true;keys['ArrowLeft']=false;}}
   }
@@ -1349,12 +1508,16 @@ function selectView(v){
   activeView=v;document.querySelectorAll('.drawer-icon').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
   setDrawerOpen(true);
 }
-function showTitleOverlay(){const ov=document.getElementById('title-overlay');ov.classList.remove('hide');document.getElementById('btn-continue').style.display=saveTimestamp?'':'none';}
+function showTitleOverlay(){const ov=document.getElementById('title-overlay');ov.classList.remove('hide');cancelTitleConfirm();}
 function hideTitleOverlay(){document.getElementById('title-overlay').classList.add('hide');}
 function startDescent(){hideTitleOverlay();gameMode='descending';titleTargetLift=0;zoneAnnounceId=null;zoneTitleT=0;}
 function continueGame(){if(gameMode!=='title')return;startDescent();}
-function onNewGame(){if(gameMode!=='title')return;if(saveTimestamp&&!confirm('Start over? This erases your current save.'))return;resetNewGame();startDescent();}
-function resetNewGame(){gold=0;inventory=[];upgLevels={rod:0,bait:0,boat:0,hold:0,depth:0};zoneUnlocked={shallow:true,deep:false,reef:false,abyss:false};playerXP=0;playerLevel=1;totalCaught=0;totalEarned=0;seenFish={};activeQuests=[];completedQuestIds=[];questEarnedGold=0;perfectCasts=0;timeOfDay=0;questNews=false;journalNews=false;fishNews={};ownedBoats={skiff:true,trawler:false,speedboat:false};activeBoat='skiff';hasAutopilot=false;autoTravelTarget=null;updateAutopilotUI();saveTimestamp=null;syncZones();pickNewQuests();updateHUD();renderInventoryBar();renderQuestBar();boat.x=LW+30;boat.vx=0;}
+function onNewGame(){if(gameMode!=='title')return;if(saveTimestamp)showTitleConfirm();else startFreshGame();}
+function startFreshGame(){resetNewGame();pendingIntro=true;startDescent();}
+function showTitleConfirm(){document.getElementById('title-confirm').classList.add('show');const bc=document.getElementById('btn-continue'),bn=document.getElementById('btn-newgame');bc.style.display='';bc.textContent='No';bc.onclick=cancelTitleConfirm;bn.textContent='Yes';bn.onclick=confirmNewGame;}
+function cancelTitleConfirm(){document.getElementById('title-confirm').classList.remove('show');const bc=document.getElementById('btn-continue'),bn=document.getElementById('btn-newgame');bc.textContent='Continue';bc.onclick=continueGame;bc.style.display=saveTimestamp?'':'none';bn.textContent='New Game';bn.onclick=onNewGame;}
+function confirmNewGame(){cancelTitleConfirm();startFreshGame();}
+function resetNewGame(){gold=0;inventory=[];upgLevels={rod:0,bait:0,boat:0,hold:0,depth:0};zoneUnlocked={shallow:true,deep:false,reef:false,abyss:false};playerXP=0;playerLevel=1;totalCaught=0;totalEarned=0;seenFish={};activeQuests=[];completedQuestIds=[];questEarnedGold=0;perfectCasts=0;timeOfDay=0;questNews=false;journalNews=false;fishNews={};ownedBoats={skiff:true,trawler:false,speedboat:false};activeBoat='skiff';hasAutopilot=false;autoTravelTarget=null;updateAutopilotUI();tutorialSeen={};activeHint=null;saveTimestamp=null;syncZones();pickNewQuests();updateHUD();renderInventoryBar();renderQuestBar();boat.x=LW+30;boat.vx=0;}
 function resumeGame(){document.getElementById('pause-menu').classList.add('hidden');}
 function saveFromPause(){saveGame();}
 function saveAndExit(){document.getElementById('pause-menu').classList.add('hidden');saveGame();gameMode='ascending';titleTargetLift=TITLE_LIFT;}

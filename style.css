@@ -186,3 +186,22 @@
 .dev-row{display:flex;gap:6px;flex-wrap:wrap;}
 .dev-btn{flex:1;min-width:54px;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.06);color:#dfe7f2;cursor:pointer;}
 .dev-btn:hover{background:rgba(255,255,255,0.14);}
+/* Tutorial hint + intro */
+.intro-p{font-size:14px;color:#6a5230;margin:0 0 10px;line-height:1.45;}
+.intro-list{list-style:none;padding:0;margin:10px 0 12px;}
+.intro-list li{padding:7px 2px;border-bottom:1px solid #e6d3aa;color:#4a3826;font-size:14px;}
+.intro-list li:last-child{border-bottom:none;}
+.intro-list li b{color:#1D9E75;}
+#dev-tools.locked{display:none;}
+
+/* Tutorial card nav */
+#tut-nav{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:6px;}
+.tut-arrow{width:34px;height:34px;border-radius:50%;border:1px solid #c9a96e;background:rgba(255,255,255,0.5);color:#6a4e28;font-size:20px;font-weight:700;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;}
+.tut-arrow:hover{background:#f0d9a8;}
+#tut-dots{display:flex;gap:7px;}
+.tut-dot{width:8px;height:8px;border-radius:50%;background:#d8c39a;}
+.tut-dot.on{background:#1D9E75;}
+#tut-content{min-height:150px;}
+
+#title-confirm{max-width:320px;margin:0 auto;text-align:center;font-size:15px;line-height:1.4;color:#fff;background:rgba(11,21,38,0.62);border:1px solid transparent;padding:0 14px;border-radius:12px;opacity:0;max-height:0;overflow:hidden;transition:max-height .35s ease,opacity .3s ease,margin .35s ease,padding .35s ease,border-color .35s ease;pointer-events:none;}
+#title-confirm.show{opacity:1;max-height:120px;margin:0 auto 14px;padding:10px 14px;border-color:rgba(250,199,117,0.4);}

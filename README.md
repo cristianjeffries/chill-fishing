@@ -2,7 +2,7 @@
 
 A cozy, browser-based fishing RPG built from scratch in vanilla JavaScript on an HTML5 Canvas — no frameworks, no build step, no dependencies. Cast a line, explore deeper waters, fill out your journal, and unwind.
 
-**▶️ [Play it here](https://cristianjeffries.github.io/chill-fishing/)** 
+**▶️ [Play it here](https://YOUR_USERNAME.github.io/chill-fishing/)**  ← _(update this link after enabling GitHub Pages)_
 
 ![Chill Fishing](https://img.shields.io/badge/play-in%20browser-1D9E75) ![Vanilla JS](https://img.shields.io/badge/vanilla-JavaScript-f7df1e) ![No dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 

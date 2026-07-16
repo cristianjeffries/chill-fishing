@@ -10,6 +10,7 @@
     <div id="title-wrap">
       <div id="title-name"><span>chill</span><span id="title-name2">fishing</span></div>
     </div>
+    <div id="title-confirm">Are you sure? This will overwrite your current save.</div>
     <div id="title-btns">
       <button id="btn-continue" onclick="continueGame()">Continue</button>
       <button id="btn-newgame" onclick="onNewGame()">New Game</button>
@@ -21,7 +22,8 @@
       <button class="pause-opt" onclick="resumeGame()">Resume</button>
       <button class="pause-opt" onclick="saveFromPause()">Save game</button>
       <button class="pause-opt" onclick="saveAndExit()">Save &amp; exit to title</button>
-      <div id="dev-tools">
+      <button class="pause-opt" onclick="openTutorial('review')">Tutorial</button>
+      <div id="dev-tools" class="locked">
         <div class="dev-title">🛠 Developer Tools</div>
         <div class="dev-label">Weather</div>
         <div class="dev-row">
@@ -30,6 +32,11 @@
           <button class="dev-btn" onclick="devSetWeather('fog')">Fog</button>
           <button class="dev-btn" onclick="devSetWeather('storm')">Storm</button>
           <button class="dev-btn" onclick="devSetWeather('auto')">Auto</button>
+        </div>
+        <div class="dev-label">Data</div>
+        <div class="dev-row">
+          <button class="dev-btn" onclick="devResetTutorial()">Reset tutorial</button>
+          <button class="dev-btn" onclick="devResetSave()">Reset save</button>
         </div>
       </div>
     </div>
@@ -70,17 +77,14 @@
   </div>
 <div id="shop-overlay" class="overlay">
   <div class="panel">
-    <div class="panel-header"><h3>🏪 Harbor Market</h3><div style="display:flex;gap:6px;align-items:center;"><button class="sbtn" onclick="saveGame()">💾</button><button class="close-btn" onclick="closeShop()">✕</button></div></div>
+    <div class="panel-header"><h3 id="shop-title">🏪 Harbor Market</h3><div style="display:flex;gap:6px;align-items:center;"><button class="close-btn" onclick="closeShop()">✕</button></div></div>
     <div style="font-size:12px;color:var(--color-text-secondary);padding:6px 16px 0;">💰 <strong id="shop-gold-val">0</strong> · ⭐ Lv<strong id="shop-lv-val">1</strong></div>
     <div class="panel-body">
-      <div class="sec-label">Sell fish</div><div id="sell-list"></div><button id="sell-all-btn" onclick="sellAll()">Sell all fish</button>
-      <div class="sec-label">Upgrades</div><div id="upgrade-list"></div>
-      <div class="sec-label">Boats</div><div id="boat-list"></div>
-      <div class="sec-label">Navigation</div><div id="nav-list"></div>
-      <div class="sec-label">Zones</div><div id="zone-list"></div>
-      <div class="sec-label">Quests</div><div id="quest-list-shop"></div>
-      <div class="sec-label">Save</div><div id="save-info" style="font-size:10px;color:var(--color-text-secondary);margin-bottom:4px;"></div>
-      <button id="reset-btn" onclick="confirmReset()">🗑 Reset save</button>
+      <div class="vsec" data-v="fish"><div class="sec-label">Sell fish</div><div id="sell-list"></div><button id="sell-all-btn" onclick="sellAll()">Sell all fish</button></div>
+      <div class="vsec" data-v="shop"><div class="sec-label">Upgrades</div><div id="upgrade-list"></div></div>
+      <div class="vsec" data-v="ships"><div class="sec-label">Boats</div><div id="boat-list"></div></div>
+      <div class="vsec" data-v="nav"><div class="sec-label">Navigation</div><div id="nav-list"></div><div class="sec-label">Zones</div><div id="zone-list"></div></div>
+      <div class="vsec" data-v="misc" style="display:none;"><div class="sec-label">Quests</div><div id="quest-list-shop"></div><div id="save-info" style="display:none;"></div></div>
     </div>
   </div>
 </div>
@@ -88,6 +92,20 @@
   <div class="panel">
     <div class="panel-header"><h3>📦 Cargo Hold <span id="cargo-cap" style="font-size:11px;color:#888;font-weight:400;"></span></h3><button class="close-btn" onclick="dismissActivePanel()">✕</button></div>
     <div class="panel-body"><div id="cargo-summary" style="display:flex;gap:8px;margin-bottom:12px;"></div><div id="cargo-list"></div></div>
+  </div>
+</div>
+<div id="intro-overlay" class="overlay">
+  <div class="panel" style="max-width:440px;">
+    <div class="panel-header"><h3 id="tut-title"></h3><button id="tut-close" class="close-btn" onclick="closeTutorialReview()" style="display:none;">✕</button></div>
+    <div class="panel-body">
+      <div id="tut-content"></div>
+      <div id="tut-nav">
+        <button id="tut-prev" class="tut-arrow" onclick="tutorialGo(-1)">‹</button>
+        <div id="tut-dots"></div>
+        <button id="tut-next" class="tut-arrow" onclick="tutorialGo(1)">›</button>
+      </div>
+      <button id="tut-start" class="sbtn" style="width:100%;margin-top:10px;display:none;" onclick="finishTutorial()">Start fishing</button>
+    </div>
   </div>
 </div>
 <div id="journal-overlay" class="overlay">
